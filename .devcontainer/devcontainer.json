@@ -1,0 +1,29 @@
+{
+    "name": "GP Presets Converter Dev Container",
+    "image": "mcr.microsoft.com/devcontainers/python:3.12",
+    
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-python.black-formatter",
+                "ms-python.isort",
+                "ms-python.flake8",
+                "charliermarsh.ruff"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/local/bin/python",
+                "python.testing.pytestEnabled": true
+            }
+        }
+    },
+    
+    "postCreateCommand": "pip install -e '.[dev]'",
+    
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {}
+    },
+    
+    "remoteUser": "vscode"
+}
