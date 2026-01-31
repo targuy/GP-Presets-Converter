@@ -1,0 +1,2 @@
+# Core dependencies for GP-Presets-Converter
+# Add your project dependencies here
