@@ -72,7 +72,8 @@ class HexDumper:
                 hex_parts.append("  ")
 
         # Group hex bytes in pairs
-        hex_str = " ".join(hex_parts[i : i + 2] for i in range(0, len(hex_parts), 2))
+        hex_groups = [" ".join(hex_parts[i : i + 2]) for i in range(0, len(hex_parts), 2)]
+        hex_str = " ".join(hex_groups)
 
         # ASCII column
         ascii_str = "".join(self._to_ascii(b) for b in chunk)
