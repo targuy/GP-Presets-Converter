@@ -1,5 +1,7 @@
 """
 Command-line interface for GP Presets Converter.
+
+Supports bidirectional conversion between VALETON GP-5 and GP-50 .prst formats.
 """
 
 import argparse
@@ -14,7 +16,7 @@ from .core import BinaryAnalyzer
 def main() -> int:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
-        description="Convert VALETON GP-5 preset files to GP-50 format",
+        description="Convert VALETON GP-5 / GP-50 preset files (.prst) in both directions",
         prog="gp-convert",
         epilog="For more information, see: https://github.com/targuy/GP-Presets-Converter",
     )
@@ -28,7 +30,7 @@ def main() -> int:
     parser.add_argument(
         "input",
         type=Path,
-        help="Input GP-5 preset file or directory",
+        help="Input preset file (.prst) or directory",
     )
 
     parser.add_argument(
@@ -36,6 +38,13 @@ def main() -> int:
         "--output",
         type=Path,
         help="Output file or directory (optional)",
+    )
+
+    parser.add_argument(
+        "-t",
+        "--target",
+        choices=["GP5", "GP50"],
+        help="Target format (auto-detected if not specified)",
     )
 
     parser.add_argument(
@@ -75,10 +84,14 @@ def main() -> int:
         converter = PresetConverter()
 
         if args.input.is_file():
-            output_path = converter.convert_file(args.input, args.output)
+            output_path = converter.convert_file(
+                args.input, args.output, args.target
+            )
             print(f"✓ Converted: {output_path}")
         elif args.input.is_dir():
-            converted_files = converter.convert_directory(args.input, args.output)
+            converted_files = converter.convert_directory(
+                args.input, args.output, args.target
+            )
             print(f"✓ Converted {len(converted_files)} file(s)")
             if args.verbose:
                 for file_path in converted_files:
