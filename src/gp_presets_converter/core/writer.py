@@ -2,6 +2,7 @@
 Output file writer for preset files.
 
 This module handles writing converted presets to disk in the appropriate format.
+Supports both real .prst files (binary conversion) and legacy model-based output.
 """
 
 from pathlib import Path
@@ -23,9 +24,22 @@ class PresetWriter:
         """Initialize the preset writer."""
         pass
 
+    def write_binary(self, data: bytes, output_path: Path) -> None:
+        """
+        Write raw binary preset data to a file.
+
+        Args:
+            data: Binary preset data (GP5 or GP50 format)
+            output_path: Path where the preset file should be written
+
+        Raises:
+            IOError: If file cannot be written
+        """
+        self._write_file(output_path, data)
+
     def write_gp50(self, preset: GP50Preset, output_path: Path) -> None:
         """
-        Write a GP-50 preset to disk.
+        Write a GP-50 preset to disk (legacy model-based format).
 
         Args:
             preset: GP50Preset object to write
@@ -34,7 +48,6 @@ class PresetWriter:
         Raises:
             IOError: If file cannot be written
         """
-        # Create binary data from preset
         writer = BinaryWriter()
 
         # Write signature
@@ -47,15 +60,10 @@ class PresetWriter:
         writer.write_string(preset.name, 32)
 
         # Write parameters (placeholder structure)
-        # This would be replaced with actual GP-50 binary format
         for key, value in preset.parameters.items():
-            # Placeholder serialization
             pass
 
-        # Get binary data
         data = writer.get_bytes()
-
-        # Write to file
         self._write_file(output_path, data)
 
     def _write_file(self, path: Path, data: bytes) -> None:
@@ -70,10 +78,7 @@ class PresetWriter:
             IOError: If file cannot be written
         """
         try:
-            # Create parent directory if it doesn't exist
             path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Write file
             with open(path, "wb") as f:
                 f.write(data)
         except Exception as e:
@@ -95,12 +100,10 @@ class PresetWriter:
         backup_path = file_path.with_suffix(file_path.suffix + ".backup")
         counter = 1
 
-        # Find unique backup filename
         while backup_path.exists():
             backup_path = file_path.with_suffix(f"{file_path.suffix}.backup{counter}")
             counter += 1
 
-        # Copy original to backup
         import shutil
 
         shutil.copy2(file_path, backup_path)

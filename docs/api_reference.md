@@ -6,7 +6,7 @@ Complete API documentation for the GP Presets Converter package.
 
 ### PresetConverter
 
-Main class for converting preset files.
+Main class for converting preset files between GP-5 and GP-50 formats.
 
 ```python
 from gp_presets_converter import PresetConverter
@@ -16,23 +16,27 @@ converter = PresetConverter()
 
 #### Methods
 
-**`convert_file(input_path: Path, output_path: Optional[Path] = None) -> Path`**
+**`convert_file(input_path: Path, output_path: Optional[Path] = None, *, target_slot: Optional[int] = None, nam_offset: int = 0) -> Path`**
 
-Convert a single GP-5 preset file to GP-50 format.
+Convert a single `.prst` preset file. Auto-detects GP-5 vs GP-50 and converts to the opposite format.
 
 - **Parameters:**
-  - `input_path`: Path to the input GP-5 preset file
+  - `input_path`: Path to the input `.prst` preset file
   - `output_path`: Optional output path (auto-generated if not provided)
+  - `target_slot`: Optional slot number (0–127) for the output filename
+  - `nam_offset`: Signed integer offset to remap NAM/SnapTone slot references (default `0`)
 - **Returns:** Path to the converted file
 - **Raises:** `FileNotFoundError`, `ValueError`
 
-**`convert_directory(input_dir: Path, output_dir: Optional[Path] = None) -> list[Path]`**
+**`convert_directory(input_dir: Path, output_dir: Optional[Path] = None, *, start_slot: Optional[int] = None, nam_offset: int = 0) -> list[Path]`**
 
-Convert all GP-5 files in a directory.
+Convert all `.prst` files in a directory.
 
 - **Parameters:**
-  - `input_dir`: Directory containing GP-5 preset files
+  - `input_dir`: Directory containing preset files
   - `output_dir`: Optional output directory
+  - `start_slot`: Optional starting slot number; files are numbered sequentially from this value
+  - `nam_offset`: Signed integer offset to remap NAM/SnapTone slot references (default `0`)
 - **Returns:** List of converted file paths
 - **Raises:** `NotADirectoryError`
 
@@ -99,19 +103,53 @@ Validate preset file checksum.
 
 ### CoreConverter
 
-Core conversion logic between formats.
+Core binary conversion logic between GP-5 and GP-50 formats.
 
 ```python
-from gp_presets_converter.core import CoreConverter
-
-converter = CoreConverter()
+from gp_presets_converter.core.converter import CoreConverter
 ```
 
-#### Methods
+#### Static / Class Methods
+
+**`convert_gp5_to_gp50(data: bytes, nam_offset: int = 0) -> bytes`**
+
+Convert raw GP-5 binary data (507 bytes) to GP-50 format (552 bytes).
+
+- **Parameters:**
+  - `data`: Raw GP-5 binary data
+  - `nam_offset`: Signed integer offset applied to NAM/SnapTone slot reference (default `0`)
+- **Returns:** Raw GP-50 binary data
+- **Raises:** `ValueError`
+
+**`convert_gp50_to_gp5(data: bytes, nam_offset: int = 0) -> bytes`**
+
+Convert raw GP-50 binary data (552 bytes) to GP-5 format (507 bytes).
+
+- **Parameters:**
+  - `data`: Raw GP-50 binary data
+  - `nam_offset`: Signed integer offset applied to NAM/SnapTone slot reference (default `0`)
+- **Returns:** Raw GP-5 binary data
+- **Raises:** `ValueError`
+
+**`get_nam_ref(data: bytes) -> int`**
+
+Read the NAM/SnapTone slot reference from raw preset data. Returns the tag `0x0c` value byte.
+
+- **Parameters:** `data` — Raw GP-5 or GP-50 binary data
+- **Returns:** NAM slot number (`0` = no NAM assigned)
+
+**`remap_nam_ref(data: bytes, offset: int) -> bytes`**
+
+Return a copy of the preset data with the NAM/SnapTone slot reference shifted by `offset`. Only applied when the current reference is non-zero.
+
+- **Parameters:**
+  - `data`: Raw preset binary data
+  - `offset`: Signed integer offset
+- **Returns:** Modified binary data
 
 **`convert(gp5_preset: GP5Preset) -> GP50Preset`**
 
-Convert GP-5 preset to GP-50 format.
+Convert GP-5 preset model to GP-50 preset model.
 
 - **Parameters:** `gp5_preset` - GP5Preset object
 - **Returns:** GP50Preset object
@@ -219,6 +257,32 @@ data = PresetData(
     raw_data=b"..."
 )
 ```
+
+---
+
+## Utility Functions
+
+### Slot Filename Helpers
+
+```python
+from gp_presets_converter.utils import file_handler
+```
+
+**`_parse_slot_from_filename(filename: str) -> Optional[int]`**
+
+Extract the slot number from a preset filename prefix.
+
+- **Parameters:** `filename` — e.g., `"55-TimPierce.prst"`
+- **Returns:** Slot number as `int` (e.g., `55`), or `None` if no prefix found
+
+**`_replace_slot_in_filename(filename: str, new_slot: int) -> str`**
+
+Return a new filename with the slot prefix replaced.
+
+- **Parameters:**
+  - `filename`: Original filename (e.g., `"55-TimPierce.prst"`)
+  - `new_slot`: New slot number (0–127)
+- **Returns:** Updated filename (e.g., `"70-TimPierce.prst"`)
 
 ---
 

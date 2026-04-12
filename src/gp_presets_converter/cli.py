@@ -1,5 +1,7 @@
 """
 Command-line interface for GP Presets Converter.
+
+Supports bidirectional conversion between VALETON GP-5 and GP-50 .prst formats.
 """
 
 import argparse
@@ -14,9 +16,19 @@ from .core import BinaryAnalyzer
 def main() -> int:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
-        description="Convert VALETON GP-5 preset files to GP-50 format",
+        description="Convert VALETON GP-5 / GP-50 preset files (.prst) in both directions",
         prog="gp-convert",
-        epilog="For more information, see: https://github.com/targuy/GP-Presets-Converter",
+        epilog=(
+            "Examples:\n"
+            "  gp-convert 55-TimPierce.prst                    # Auto-detect & convert\n"
+            "  gp-convert 55-TimPierce.prst --slot 70           # Output as 70-TimPierce.prst\n"
+            "  gp-convert ./GP5\\ PRESETS/ -o ./GP50/ --slot 60  # Batch starting at slot 60\n"
+            "  gp-convert preset.prst --nam-offset 5            # Shift NAM refs by +5\n"
+            "  gp-convert preset.prst --analyze                 # Analyze file structure\n"
+            "\n"
+            "For more information, see: https://github.com/targuy/GP-Presets-Converter"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument(
@@ -28,7 +40,7 @@ def main() -> int:
     parser.add_argument(
         "input",
         type=Path,
-        help="Input GP-5 preset file or directory",
+        help="Input preset file (.prst) or directory",
     )
 
     parser.add_argument(
@@ -36,6 +48,40 @@ def main() -> int:
         "--output",
         type=Path,
         help="Output file or directory (optional)",
+    )
+
+    parser.add_argument(
+        "-t",
+        "--target",
+        choices=["GP5", "GP50"],
+        help="Target format (auto-detected if not specified)",
+    )
+
+    parser.add_argument(
+        "-s",
+        "--slot",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Target slot number (0-127). Sets the leading number in the output "
+            "filename. For directories, files are numbered sequentially starting "
+            "from this value."
+        ),
+    )
+
+    parser.add_argument(
+        "--nam-offset",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "Signed offset to apply to NAM/SnapTone slot references inside the "
+            "binary preset data. Use when NAM models are loaded in different "
+            "slots on the source vs target device. "
+            "Example: if NAM 'JazzClean' is in slot 51 on GP5 but slot 56 on "
+            "GP50, use --nam-offset 5 when converting GP5->GP50. (default: 0)"
+        ),
     )
 
     parser.add_argument(
@@ -75,10 +121,22 @@ def main() -> int:
         converter = PresetConverter()
 
         if args.input.is_file():
-            output_path = converter.convert_file(args.input, args.output)
+            output_path = converter.convert_file(
+                args.input,
+                args.output,
+                args.target,
+                target_slot=args.slot,
+                nam_offset=args.nam_offset,
+            )
             print(f"✓ Converted: {output_path}")
         elif args.input.is_dir():
-            converted_files = converter.convert_directory(args.input, args.output)
+            converted_files = converter.convert_directory(
+                args.input,
+                args.output,
+                args.target,
+                start_slot=args.slot,
+                nam_offset=args.nam_offset,
+            )
             print(f"✓ Converted {len(converted_files)} file(s)")
             if args.verbose:
                 for file_path in converted_files:

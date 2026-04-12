@@ -214,6 +214,51 @@ make clean
 rm -rf build/ dist/ *.egg-info .pytest_cache .mypy_cache
 ```
 
+## Standalone Installers (PyInstaller)
+
+You can build a standalone executable that does not require Python to be installed on the target machine.
+
+### Building the Installer
+
+1. **Install PyInstaller:**
+```bash
+pip install pyinstaller
+```
+
+2. **Build the executable:**
+```bash
+pyinstaller --onefile --name gp-convert src/gp_presets_converter/cli.py
+```
+
+The output executable is created in the `dist/` directory.
+
+3. **Run the standalone binary:**
+```bash
+./dist/gp-convert 55-TimPierce.prst --slot 70
+```
+
+### Platform-Specific Installer Scripts
+
+The repository may include convenience scripts for each platform:
+
+- **macOS / Linux:**
+```bash
+bash build_installer.sh
+```
+
+- **Windows:**
+```cmd
+build_installer.bat
+```
+
+These scripts automate the PyInstaller build process and package the result into a distributable archive.
+
+### Notes
+
+- The standalone binary includes the Python runtime and all dependencies — no separate Python installation is needed.
+- Build on the same OS and architecture as the target machine (e.g., build on Windows for Windows users).
+- The resulting executable supports the same CLI options (`--slot`, `--nam-offset`, `--analyze`, etc.) as the pip-installed version.
+
 ## Next Steps
 
 After installation:

@@ -1,10 +1,93 @@
 # Preset Format Analysis
 
-Understanding the binary structure of VALETON GP-5 and GP-50 preset files.
+Binary structure of VALETON GP-5 and GP-50 `.prst` preset files — based on reverse-engineering actual firmware presets.
 
 ## Overview
 
-This document describes the methodology and findings from analyzing VALETON preset file formats. Since these formats are proprietary and not publicly documented, this represents reverse-engineering efforts.
+Both the GP-5 and GP-50 use `.prst` binary files. The formats share the same internal effect/parameter engine but differ in file size, mixer section width, device type tag, and tail layout.
+
+| Property | GP-5 | GP-50 |
+|---|---|---|
+| File size | 507 bytes | 552 bytes |
+| Magic signature | `GP-5\x00` (5 bytes) | `GP-50` (5 bytes) |
+| Mixer params | 2 | 10 |
+| NAM/SnapTone offset | `0xA7` | `0xD2` |
+| Size difference | — | +45 bytes |
+
+The 45-byte difference comes from: expanded mixer section (2 → 10 parameters), different device type tag, and different tail format.
+
+## Discovered Binary Layout
+
+### GP-5 (507 bytes)
+
+```
+Offset   Size    Description
+──────   ────    ───────────────────────────────
+0x00     5       Magic signature: "GP-5\x00"
+0x05     ...     Header / metadata
+  ...    ...     Effects chain (tag-value pairs)
+0xA7     1       NAM/SnapTone slot reference (tag 0x0c value byte)
+  ...    ...     Remaining FX body
+  ...    2       Mixer section (2 parameters)
+  ...    ...     Tail / footer
+──────   ────    ───────────────────────────────
+Total    507     bytes
+```
+
+### GP-50 (552 bytes)
+
+```
+Offset   Size    Description
+──────   ────    ───────────────────────────────
+0x00     5       Magic signature: "GP-50"
+0x05     ...     Header / metadata
+  ...    ...     Effects chain (tag-value pairs)
+0xD2     1       NAM/SnapTone slot reference (tag 0x0c value byte)
+  ...    ...     Remaining FX body
+  ...    10      Mixer section (10 parameters)
+  ...    ...     Tail / footer
+──────   ────    ───────────────────────────────
+Total    552     bytes
+```
+
+## Key Findings
+
+### Slot Number — Filename Only
+
+The preset slot number (0–127) is **NOT stored inside the binary**. It exists only in the filename prefix:
+
+```
+55-TimPierce.prst   →  slot 55
+01-CleanJazz.prst   →  slot 1
+127-HeavyMetal.prst →  slot 127
+```
+
+This means renaming the file is sufficient to change its slot position on the device.
+
+### NAM/SnapTone Reference
+
+Both devices support NAM/SnapTone amp models loaded into numbered user slots. The reference is stored as a tag `0x0c` value byte inside the FX body:
+
+- **GP-5 offset:** `0xA7`
+- **GP-50 offset:** `0xD2`
+- **Value `0`** = no NAM model assigned (built-in amp only)
+- **Non-zero value** = NAM/SnapTone slot number (e.g., 50–59 in typical setups)
+- Both devices use the **same numbering scheme**
+
+### IR / Cab Reference
+
+The IR/cab reference is stored as tag `0x0f`. In all analyzed presets, the value is a constant `4`. This appears to represent a cab type rather than a user-configurable IR slot.
+
+### Mixer Section
+
+The mixer section is the primary structural difference between the two formats:
+
+- **GP-5:** 2 mixer parameters
+- **GP-50:** 10 mixer parameters (8 additional parameters, default-initialized during conversion)
+
+### Device Type Tag
+
+Each format includes a device type identifier that distinguishes the target hardware. This tag is rewritten during conversion.
 
 ## Analysis Methodology
 
@@ -44,43 +127,28 @@ Examine byte distributions to detect:
 - Compressed data
 - Checksum locations
 
-## File Structure Hypothesis
+## File Structure
 
-Based on analysis, preset files likely follow this structure:
+Both formats share the following high-level layout:
 
 ```
 ┌─────────────────────────────────────┐
-│ HEADER (64-256 bytes)               │
-│  - Magic signature (4-8 bytes)      │
-│  - Format version (2-4 bytes)       │
-│  - Preset metadata                  │
-│  - Header size indicator            │
-├─────────────────────────────────────┤
-│ PRESET NAME (16-64 bytes)           │
-│  - Null-terminated or fixed length  │
-│  - UTF-8 or ASCII encoding          │
-├─────────────────────────────────────┤
-│ GLOBAL PARAMETERS (variable)        │
-│  - Input gain                       │
-│  - Output level                     │
-│  - Noise gate settings              │
-│  - Expression pedal assignments     │
+│ HEADER (5+ bytes)                   │
+│  - Magic signature (5 bytes)        │
+│  - Device metadata                  │
 ├─────────────────────────────────────┤
 │ EFFECTS CHAIN (variable)            │
-│  For each effect:                   │
-│  - Effect type ID (1-2 bytes)       │
-│  - Enable flag (1 bit)              │
-│  - Parameters (variable)            │
-│  - Effect-specific data             │
+│  Tag-value pairs for each effect:   │
+│  - Effect type / enable / params    │
+│  - Tag 0x0c = NAM/SnapTone ref     │
+│  - Tag 0x0f = IR/cab ref (= 4)     │
 ├─────────────────────────────────────┤
-│ ROUTING CONFIGURATION (variable)    │
-│  - Signal flow                      │
-│  - Effect order                     │
-│  - Parallel/serial routing          │
+│ MIXER SECTION                       │
+│  GP-5:  2 parameters                │
+│  GP-50: 10 parameters               │
 ├─────────────────────────────────────┤
-│ FOOTER (optional, 4-16 bytes)       │
-│  - Checksum or CRC                  │
-│  - End marker                       │
+│ TAIL / FOOTER                       │
+│  Device-specific tail format        │
 └─────────────────────────────────────┘
 ```
 
@@ -88,17 +156,15 @@ Based on analysis, preset files likely follow this structure:
 
 ### GP-5 Format
 
-**Current hypothesis:**
-- Signature: To be determined
-- Version location: To be determined
-- Typical file size: 200-2000 bytes
+- **Signature:** `GP-5\x00` (5 bytes: `0x47 0x50 0x2D 0x35 0x00`)
+- **File size:** 507 bytes (all known presets)
+- **NAM offset:** `0xA7`
 
 ### GP-50 Format
 
-**Current hypothesis:**
-- Signature: To be determined
-- Version location: To be determined
-- Typical file size: 200-2000 bytes
+- **Signature:** `GP-50` (5 bytes: `0x47 0x50 0x2D 0x35 0x30`)
+- **File size:** 552 bytes (all known presets)
+- **NAM offset:** `0xD2`
 
 ## Parameter Encoding
 
@@ -187,29 +253,17 @@ offsets = dumper.find_patterns(data, pattern)
 print(f"Pattern found at offsets: {offsets}")
 ```
 
-## Conversion Challenges
+## Conversion Mapping
 
-### Format Differences
+The binary conversion between GP-5 and GP-50 involves:
 
-GP-5 and GP-50 likely differ in:
+1. **Rewrite magic signature** — `GP-5\x00` ↔ `GP-50`
+2. **Expand/contract mixer** — 2 params ↔ 10 params (extra 8 params default-initialized)
+3. **Update device type tag**
+4. **Adjust tail format**
+5. **Optionally remap NAM reference** — apply signed offset to tag `0x0c` value
 
-1. **I/O Configuration**
-   - Different port layouts
-   - Expression pedal mappings may differ
-
-2. **Effect Availability**
-   - Some effects may be exclusive to one model
-   - Effect parameters might have different ranges
-
-3. **Firmware Versions**
-   - Format may vary between firmware versions
-
-### Conversion Strategy
-
-1. **Parse source format** → Extract all parameters
-2. **Map parameters** → GP-5 params → GP-50 params
-3. **Validate ranges** → Ensure values fit GP-50 limits
-4. **Serialize** → Write GP-50 binary format
+No checksum has been found in the file format; files appear to be accepted as-is by the devices.
 
 ## Checksum Algorithms
 
