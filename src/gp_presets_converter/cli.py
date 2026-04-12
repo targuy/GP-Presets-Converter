@@ -5,12 +5,21 @@ Supports bidirectional conversion between VALETON GP-5 and GP-50 .prst formats.
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
-from . import __version__
-from .converter import PresetConverter
-from .core import BinaryAnalyzer
+# Allow execution as a standalone script or PyInstaller entrypoint where
+# __package__ may be unset (e.g., python cli.py, frozen EXE). We add the
+# package root to sys.path so absolute imports below succeed.
+if __package__ in (None, ""):
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from gp_presets_converter import __version__
+from gp_presets_converter.converter import PresetConverter
+from gp_presets_converter.core import BinaryAnalyzer
+from gp_presets_converter.core.converter import CoreConverter
+from gp_presets_converter.core.parser import PresetParser
 
 
 def main() -> int:
@@ -98,6 +107,16 @@ def main() -> int:
     )
 
     parser.add_argument(
+        "--export-json",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "Export preset metadata (name, format, NAM slot, key params) to a JSON file. "
+            "Skips conversion. Works with a single file or a directory."
+        ),
+    )
+
+    parser.add_argument(
         "--no-backup",
         action="store_true",
         help="Don't create backup files before converting",
@@ -113,6 +132,11 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        if args.export_json:
+            export_presets_to_json(args.input, args.export_json)
+            print(f"✓ Exported preset metadata to {args.export_json}")
+            return 0
+
         # Analysis mode
         if args.analyze:
             return analyze_files(args.input, args.verbose)
@@ -251,6 +275,45 @@ def analyze_directory(analyzer: BinaryAnalyzer, dir_path: Path, verbose: bool) -
         print()
 
     return 0
+
+
+def export_presets_to_json(input_path: Path, output_path: Path) -> None:
+    """Export preset metadata (readable) to JSON for debugging NAM mapping.
+
+    Each entry contains: filename, format, preset name, NAM slot (if any),
+    and a small set of parsed parameters.
+    """
+
+    parser = PresetParser()
+    entries = []
+
+    def process_file(path: Path) -> None:
+        raw = path.read_bytes()
+        preset = parser.parse_file(path)
+        nam_slot = CoreConverter.get_nam_ref(raw)
+        entries.append(
+            {
+                "file": str(path),
+                "format": preset.format,
+                "name": preset.name,
+                "nam_slot": nam_slot if nam_slot != 0 else None,
+                "parameters": preset.parameters,
+            }
+        )
+
+    if input_path.is_file():
+        process_file(input_path)
+    elif input_path.is_dir():
+        for file_path in sorted(input_path.iterdir()):
+            if file_path.suffix.lower() == ".prst" and file_path.is_file():
+                process_file(file_path)
+    else:
+        raise FileNotFoundError(f"{input_path} is not a valid file or directory")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(entries, f, ensure_ascii=False, indent=2)
+
 
 
 if __name__ == "__main__":

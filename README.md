@@ -2,6 +2,11 @@
 
 Bidirectional converter between VALETON GP-5 and GP-50 `.prst` preset formats.
 
+> Status / limitations (important)
+> - Décodage partiel seulement : on extrait aujourd’hui le nom du preset, le slot NAM/SnapTone, quelques champs simples (volume, amp model id, ordre de chaîne). Les paramètres détaillés des modules FX et leurs états on/off ne sont pas encore cartographiés.
+> - Conversion testée sur un petit jeu d’exemples ; d’autres packs peuvent nécessiter `--nam-offset` ou un réglage manuel dans Valeton Suite.
+> - Si vous devez inspecter rapidement vos presets, utilisez `--export-json` pour générer un inventaire lisible (nom, format, slot NAM, paramètres basiques).
+
 ## Overview
 
 This Python project provides tools to convert preset files bidirectionally between VALETON GP-5 and GP-50 multi-effects pedal formats. The GP-5 and GP-50 share the same internal modules and architecture, but differ in binary layout (507 vs 552 bytes), mixer section size, and device type tags. Conversion is fully automatic — the tool auto-detects the source format and converts to the opposite device.
@@ -50,6 +55,9 @@ gp-convert preset.prst -t GP50
 
 # Analyze a preset file
 gp-convert preset.prst --analyze
+
+# Export readable metadata (no conversion)
+gp-convert ./GP5_PRESETS/ --export-json presets_meta.json
 
 # Get help
 gp-convert --help
