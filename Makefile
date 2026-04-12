@@ -1,15 +1,16 @@
-.PHONY: help install install-dev test lint format clean run
+.PHONY: help install install-dev test lint format clean run build-installer
 
 help:
 	@echo "GP Presets Converter - Makefile Commands"
 	@echo "========================================="
-	@echo "make install      - Install the package in production mode"
-	@echo "make install-dev  - Install the package in development mode with dev dependencies"
-	@echo "make test         - Run tests with pytest"
-	@echo "make lint         - Run linters (flake8, mypy)"
-	@echo "make format       - Format code with black and isort"
-	@echo "make clean        - Remove build artifacts and cache files"
-	@echo "make run          - Run the CLI (requires INPUT variable)"
+	@echo "make install         - Install the package in production mode"
+	@echo "make install-dev     - Install the package in development mode with dev dependencies"
+	@echo "make test            - Run tests with pytest"
+	@echo "make lint            - Run linters (flake8, mypy)"
+	@echo "make format          - Format code with black and isort"
+	@echo "make clean           - Remove build artifacts and cache files"
+	@echo "make run             - Run the CLI (requires INPUT variable)"
+	@echo "make build-installer - Build standalone executable for your platform"
 
 install:
 	pip install -e .
@@ -40,3 +41,8 @@ run:
 		exit 1; \
 	fi
 	python -m gp_presets_converter.cli $(INPUT)
+
+build-installer:
+	@echo "Building standalone executable..."
+	pip install pyinstaller 2>/dev/null || true
+	python installers/build.py
