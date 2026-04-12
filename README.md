@@ -1,16 +1,19 @@
 # GP Presets Converter
 
-Convert VALETON GP-5 preset files to GP-50 format.
+Bidirectional converter between VALETON GP-5 and GP-50 `.prst` preset formats.
 
 ## Overview
 
-This Python project provides tools to convert preset files between VALETON multi-effects pedal formats. The GP-5 and GP-50 share the same internal modules and architecture, but differ in user interface and input/output port configurations.
+This Python project provides tools to convert preset files bidirectionally between VALETON GP-5 and GP-50 multi-effects pedal formats. The GP-5 and GP-50 share the same internal modules and architecture, but differ in binary layout (507 vs 552 bytes), mixer section size, and device type tags. Conversion is fully automatic — the tool auto-detects the source format and converts to the opposite device.
 
 ## Features
 
-- **Single File Conversion** - Convert individual GP-5 preset files to GP-50 format
-- **Batch Processing** - Convert entire directories of preset files at once
-- **Binary Analysis** - Analyze unknown preset file formats with hex dump tools
+- **Bidirectional Conversion** - Convert GP-5 → GP-50 and GP-50 → GP-5 (auto-detected)
+- **Batch Processing** - Convert entire directories of `.prst` files at once
+- **Slot Management** - `--slot N` sets the target slot number (0–127) in the output filename; sequential numbering for batch runs
+- **NAM/SnapTone Offset** - `--nam-offset N` remaps NAM/SnapTone slot references when models live in different slots on source vs target device
+- **NAM Warning** - Automatic warning when a preset references a NAM/SnapTone slot and no `--nam-offset` is specified
+- **Binary Analysis** - Analyze preset file formats with hex dump tools
 - **Command-Line Interface** - Easy-to-use CLI for common operations
 - **Python API** - Full programmatic access for custom workflows
 - **Extensible Architecture** - Easy to add support for additional formats
@@ -30,14 +33,23 @@ pip install -e '.[dev]'
 ### Basic Usage
 
 ```bash
-# Convert a single file
-gp-convert input.gp5 -o output.gp50
+# Basic conversion (auto-detects direction)
+gp-convert 55-TimPierce.prst
 
-# Convert all files in a directory
-gp-convert ./gp5_presets/ -o ./gp50_presets/ -v
+# Set target slot
+gp-convert 55-TimPierce.prst --slot 70
 
-# Analyze a preset file format
-gp-convert input.gp5 --analyze
+# Batch convert with sequential slots starting at 60
+gp-convert ./GP5_PRESETS/ -o ./GP50_PRESETS/ --slot 60
+
+# Remap NAM references (shift by +5)
+gp-convert 55-TimPierce.prst --nam-offset 5
+
+# Explicit target format
+gp-convert preset.prst -t GP50
+
+# Analyze a preset file
+gp-convert preset.prst --analyze
 
 # Get help
 gp-convert --help
@@ -48,9 +60,29 @@ gp-convert --help
 ```python
 from pathlib import Path
 from gp_presets_converter import PresetConverter
+from gp_presets_converter.core.converter import CoreConverter
 
 converter = PresetConverter()
-converter.convert_file(Path("input.gp5"), Path("output.gp50"))
+
+# Single file with slot and NAM offset
+converter.convert_file(
+    Path("55-TimPierce.prst"),
+    target_slot=70,
+    nam_offset=5,
+)
+
+# Batch with sequential slots
+converter.convert_directory(
+    Path("./GP5_PRESETS/"),
+    Path("./GP50_PRESETS/"),
+    start_slot=60,
+    nam_offset=5,
+)
+
+# Binary-level
+gp50_data = CoreConverter.convert_gp5_to_gp50(gp5_data, nam_offset=5)
+gp5_data = CoreConverter.convert_gp50_to_gp5(gp50_data, nam_offset=-5)
+nam_ref = CoreConverter.get_nam_ref(data)
 ```
 
 ## Documentation
@@ -98,7 +130,7 @@ GP-Presets-Converter/
 │   │   └── settings.py          # Settings and constants
 │   ├── cli.py                   # Command-line interface
 │   └── converter.py             # Main converter class
-├── tests/                       # Test suite (61 tests)
+├── tests/                       # Test suite (666 tests)
 │   ├── unit/                    # Unit tests
 │   ├── integration/             # Integration tests
 │   └── conftest.py              # Pytest fixtures
@@ -157,10 +189,11 @@ mypy src/gp_presets_converter
 
 The converter uses a modular architecture:
 
-1. **Parser** - Reads binary preset files and extracts parameters
-2. **Converter** - Translates GP-5 parameters to GP-50 format
-3. **Writer** - Writes converted data to GP-50 binary format
-4. **Analyzer** - Provides tools for understanding unknown formats
+1. **Parser** - Reads binary `.prst` files and detects GP-5 vs GP-50 format
+2. **CoreConverter** - Bidirectional binary conversion between GP-5 (507 bytes) and GP-50 (552 bytes)
+3. **Writer** - Writes converted data to the target binary format
+4. **Analyzer** - Provides tools for understanding preset formats
+5. **Slot/NAM utilities** - Filename-based slot management and NAM reference remapping
 
 ## Contributing
 
@@ -174,10 +207,25 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) and the
 - **Features** - Add support for new devices or formats
 - **Bug Fixes** - Report and fix issues
 
+## Slot and NAM Management
+
+### Slot Numbers
+
+The preset slot number (0–127) is stored **only in the filename prefix** (e.g., `55-TimPierce.prst` → slot 55). It is not embedded in the binary data. Use `--slot N` to control where the converted preset lands on the target device.
+
+For batch conversions, `--slot N` sets the starting slot and files are numbered sequentially from there.
+
+### NAM/SnapTone References
+
+Both devices support VALETON's NAM/SnapTone amp models loaded into user slots. The NAM slot reference is stored inside the binary at offset `0xA7` (GP-5) / `0xD2` (GP-50) as a tag `0x0c` value byte. A value of `0` means no NAM is assigned (built-in amp only).
+
+If your NAM models are loaded in different slots on the source and target devices, use `--nam-offset N` to shift the reference. For example, if a preset references NAM slot 52 on GP-5 and you loaded that model into slot 57 on GP-50, use `--nam-offset 5`.
+
+When a preset contains a NAM reference and `--nam-offset` is not specified, the converter prints a warning so you can verify the reference is correct.
+
 ## Testing Status
 
-- **61 Tests Passing** - Comprehensive unit and integration tests
-- **56% Code Coverage** - Good coverage of core functionality
+- **666 Tests Passing** - Comprehensive unit and integration tests
 - **Continuous Testing** - Automated test execution
 
 ## VSCode Integration

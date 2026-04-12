@@ -356,6 +356,76 @@ pip install -e '.[dev]'
 
 ## Getting More Help
 
+### NAM/SnapTone Mismatch After Conversion
+
+**Problem:** Converted preset loads on the target device but uses the wrong NAM/SnapTone amp model, or no NAM model at all.
+
+**Cause:** The NAM slot reference inside the preset binary points to a different model on the target device. The GP-5 and GP-50 manage NAM model slots independently, so slot 52 on one device may hold a different model than slot 52 on the other.
+
+**Solution:**
+```bash
+# Check current NAM reference
+gp-convert preset.prst --analyze
+
+# Shift NAM reference by the difference
+# e.g., source slot 52 → target slot 57 means offset +5
+gp-convert preset.prst --nam-offset 5
+```
+
+If you are unsure which slots hold which models, compare the NAM/SnapTone slot lists on both devices and compute the offset.
+
+---
+
+### Preset Overwrites Existing Slot
+
+**Problem:** After transferring converted presets, existing presets on the target device are overwritten.
+
+**Cause:** The preset slot number is encoded in the filename prefix (e.g., `55-TimPierce.prst` → slot 55). If the target device already has a preset in slot 55, loading this file will replace it.
+
+**Solution:**
+```bash
+# Use --slot to assign a different slot number
+gp-convert 55-TimPierce.prst --slot 100
+
+# For batch conversions, pick a starting slot that doesn't collide
+gp-convert ./GP5_PRESETS/ -o ./GP50_PRESETS/ --slot 80
+```
+
+**Tip:** Check which slots are already occupied on your target device before converting, and choose a `--slot` range that is free.
+
+---
+
+### Wrong Sound After Conversion
+
+**Problem:** The converted preset loads and plays, but the tone doesn't match the original.
+
+**Possible causes and solutions:**
+
+1. **NAM/SnapTone reference not remapped:**
+   If the preset uses a NAM model and you didn't specify `--nam-offset`, the reference may point to the wrong model on the target device.
+   ```bash
+   gp-convert preset.prst --nam-offset 5
+   ```
+
+2. **Expression pedal assignments differ:**
+   The GP-50 may have different pedal input configurations. Reassign expression pedal mappings on the target device.
+
+3. **Mixer parameter defaults:**
+   GP-50 has 10 mixer parameters vs 2 on GP-5. The extra 8 parameters are default-initialized during conversion. Fine-tune them on the target device if needed.
+
+**Diagnostic steps:**
+```bash
+# Analyze both the original and converted presets
+gp-convert original.prst --analyze
+gp-convert converted.prst --analyze
+```
+
+Compare the analysis output to identify any parameter discrepancies.
+
+---
+
+## Additional Resources
+
 ### Enable Debug Mode
 
 ```python

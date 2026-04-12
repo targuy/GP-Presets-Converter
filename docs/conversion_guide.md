@@ -1,32 +1,33 @@
 # Conversion Guide
 
-Detailed guide to converting VALETON GP-5 presets to GP-50 format.
+Detailed guide to converting VALETON GP-5 and GP-50 presets bidirectionally.
 
 ## Understanding the Conversion Process
+
+Both devices use `.prst` binary files. The converter auto-detects the source format (GP-5: 507 bytes, magic `GP-5\x00`; GP-50: 552 bytes, magic `GP-50`) and converts to the opposite format.
 
 ### What Gets Converted
 
 The converter handles:
 
-1. **Preset Metadata**
-   - Preset name
-   - Version information
-   - Creation date (if present)
+1. **Binary Header**
+   - Magic signature rewritten for the target device
+   - Device type tag updated
 
-2. **Global Parameters**
-   - Input gain
-   - Output level
-   - Noise gate settings
+2. **Effects Chain & Parameters**
+   - All effect types, parameters, enable/bypass states, and order
+   - Identical effect engine on both devices
 
-3. **Effects Chain**
-   - Effect types
-   - Effect parameters
-   - Enable/bypass states
-   - Effect order
+3. **Mixer Section**
+   - GP-5 has a 2-parameter mixer; GP-50 has 10 parameters
+   - Conversion expands or contracts the mixer section accordingly
 
-4. **Signal Routing**
-   - Effect connections
-   - Parallel/serial configuration
+4. **NAM/SnapTone Reference**
+   - Tag `0x0c` value byte at offset `0xA7` (GP-5) / `0xD2` (GP-50)
+   - Optionally remapped via `--nam-offset`
+
+5. **Tail Format**
+   - Adjusted for the target device's binary layout
 
 ### What May Not Convert Perfectly
 
@@ -36,26 +37,30 @@ Some aspects may require adjustment:
    - GP-50 may have different pedal input configurations
    - May need manual reassignment
 
-2. **Device-Specific Features**
+2. **NAM/SnapTone Slot References**
+   - If NAM models are loaded into different slots on the target device, you must use `--nam-offset` to remap
+
+3. **Device-Specific Features**
    - I/O port configurations differ
    - Some hardware-specific settings
-
-3. **Effect Availability**
-   - Rare: Some effects may be model-specific
-   - Usually: Both devices share the same effect engine
 
 ## Conversion Methods
 
 ### Method 1: Command-Line (Simplest)
 
-Single file:
+Single file (auto-detects direction):
 ```bash
-gp-convert my_preset.gp5 -o my_preset.gp50
+gp-convert 55-TimPierce.prst
 ```
 
-Entire directory:
+With target slot and NAM offset:
 ```bash
-gp-convert ./gp5_presets/ -o ./gp50_presets/ -v
+gp-convert 55-TimPierce.prst --slot 70 --nam-offset 5
+```
+
+Entire directory with sequential slots:
+```bash
+gp-convert ./GP5_PRESETS/ -o ./GP50_PRESETS/ --slot 60
 ```
 
 ### Method 2: Python Script (More Control)
@@ -69,8 +74,9 @@ converter = PresetConverter()
 # Single file with error handling
 try:
     result = converter.convert_file(
-        Path("input.gp5"),
-        Path("output.gp50")
+        Path("55-TimPierce.prst"),
+        target_slot=70,
+        nam_offset=5,
     )
     print(f"Success: {result}")
 except Exception as e:
@@ -131,23 +137,23 @@ presets/
 Convert a few test files first:
 
 ```bash
-gp-convert presets/gp5/user/test1.gp5 -o presets/gp50/test1.gp50 -v
-gp-convert presets/gp5/user/test2.gp5 -o presets/gp50/test2.gp50 -v
+gp-convert 55-TimPierce.prst -v
+gp-convert 01-CleanJazz.prst --slot 80 -v
 ```
 
 ### 3. Verify on Device
 
-1. Transfer test files to GP-50
+1. Transfer test files to the target device (GP-50 or GP-5)
 2. Load and test each preset
 3. Check that all effects work correctly
-4. Verify parameter values
+4. Verify NAM/SnapTone references are correct
 
 ### 4. Batch Conversion
 
 Once satisfied with test conversions:
 
 ```bash
-gp-convert presets/gp5/user/ -o presets/gp50/user/ -v
+gp-convert ./GP5_PRESETS/ -o ./GP50_PRESETS/ --slot 0 -v
 ```
 
 ### 5. Post-Conversion Checks
@@ -159,11 +165,73 @@ from gp_presets_converter import BinaryAnalyzer
 analyzer = BinaryAnalyzer()
 
 # Check all converted files
-gp50_dir = Path("presets/gp50/user/")
-for preset in gp50_dir.glob("*.gp50"):
+gp50_dir = Path("./GP50_PRESETS/")
+for preset in gp50_dir.glob("*.prst"):
     analysis = analyzer.analyze_file(preset)
     print(f"{preset.name}: {analysis['file_size']} bytes")
 ```
+
+## Slot Number Management
+
+The preset slot number (0–127) is stored **only in the filename prefix** — it is not embedded in the binary data. The filename format is `NN-PresetName.prst` where `NN` is the slot number.
+
+### Single File
+
+```bash
+# Original: 55-TimPierce.prst → Output: 70-TimPierce.prst (as GP-50)
+gp-convert 55-TimPierce.prst --slot 70
+```
+
+### Batch with Sequential Numbering
+
+```bash
+# Files numbered sequentially starting at slot 60
+gp-convert ./GP5_PRESETS/ -o ./GP50_PRESETS/ --slot 60
+# 60-xxx.prst, 61-xxx.prst, 62-xxx.prst, ...
+```
+
+### When to Use `--slot`
+
+- **Reorganizing presets** on the target device
+- **Avoiding overwrites** when the target slot is already occupied
+- **Standardizing slot layout** across devices
+
+## NAM/SnapTone Slot Management
+
+Both the GP-5 and GP-50 support VALETON's NAM/SnapTone amp models. These models are loaded into numbered user slots on each device independently.
+
+### How NAM References Work
+
+- The NAM slot reference is a single byte stored at offset `0xA7` (GP-5) or `0xD2` (GP-50) with tag `0x0c`.
+- Value `0` = no NAM assigned (built-in amp only).
+- Both devices use the same numbering scheme (e.g., 50–59 in typical setups).
+
+### When to Use `--nam-offset`
+
+Use `--nam-offset` when your NAM models are loaded in **different slot positions** on the source and target device.
+
+**Example:** GP-5 preset references NAM slot 52. On your GP-50, that model sits in slot 57.
+
+```bash
+gp-convert 55-TimPierce.prst --nam-offset 5
+# NAM ref 52 → 57
+```
+
+**Reverse direction:**
+```bash
+gp-convert 70-TimPierce.prst --nam-offset -5
+# NAM ref 57 → 52
+```
+
+### NAM Warning
+
+If a preset references a NAM/SnapTone slot and you do **not** specify `--nam-offset`, the converter prints a warning:
+
+```
+⚠ Preset references NAM/SnapTone slot 52. Use --nam-offset if slots differ on target device.
+```
+
+This is informational only — the conversion still proceeds. If your devices use the same NAM slot layout, you can safely ignore the warning.
 
 ## Troubleshooting Conversions
 
