@@ -98,7 +98,7 @@ GP-Presets-Converter/
 │   │   └── settings.py          # Settings and constants
 │   ├── cli.py                   # Command-line interface
 │   └── converter.py             # Main converter class
-├── tests/                       # Test suite (58 tests)
+├── tests/                       # Test suite (61 tests)
 │   ├── unit/                    # Unit tests
 │   ├── integration/             # Integration tests
 │   └── conftest.py              # Pytest fixtures
@@ -176,8 +176,8 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) and the
 
 ## Testing Status
 
-- **58 Tests Passing** - Comprehensive unit and integration tests
-- **58% Code Coverage** - Good coverage of core functionality
+- **61 Tests Passing** - Comprehensive unit and integration tests
+- **56% Code Coverage** - Good coverage of core functionality
 - **Continuous Testing** - Automated test execution
 
 ## VSCode Integration

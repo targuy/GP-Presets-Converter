@@ -8,6 +8,12 @@ While the internal engine and modules are shared, the user interface and I/O por
 from pathlib import Path
 from typing import Optional
 
+from .core.converter import CoreConverter
+from .core.parser import PresetParser
+from .core.writer import PresetWriter
+from .models.gp5_preset import GP5Preset
+from .models.gp50_preset import GP50Preset
+
 
 class PresetConverter:
     """
@@ -20,6 +26,9 @@ class PresetConverter:
     def __init__(self) -> None:
         """Initialize the preset converter."""
         self.version = "0.1.0"
+        self._parser = PresetParser()
+        self._core_converter = CoreConverter()
+        self._writer = PresetWriter()
 
     def convert_file(self, input_path: Path, output_path: Optional[Path] = None) -> Path:
         """
@@ -43,9 +52,23 @@ class PresetConverter:
         if output_path is None:
             output_path = input_path.with_suffix(".gp50")
 
-        # TODO: Implement actual conversion logic
-        # This is a placeholder for the conversion logic
         print(f"Converting {input_path} to {output_path}")
+
+        # Parse the input file
+        preset_data = self._parser.parse_file(input_path)
+
+        # Build a GP5Preset from the parsed data
+        gp5_preset = GP5Preset(
+            name=preset_data.name or input_path.stem,
+            version=preset_data.version or "1.0",
+            parameters=preset_data.parameters,
+        )
+
+        # Convert to GP-50 format
+        gp50_preset: GP50Preset = self._core_converter.convert(gp5_preset)
+
+        # Write the output file
+        self._writer.write_gp50(gp50_preset, output_path)
 
         return output_path
 
@@ -66,6 +89,9 @@ class PresetConverter:
         """
         if not input_dir.is_dir():
             raise NotADirectoryError(f"Not a directory: {input_dir}")
+
+        if output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
 
         converted_files = []
 
