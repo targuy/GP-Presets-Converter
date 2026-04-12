@@ -22,6 +22,7 @@ GP5 format (507 bytes):
   0x7F:      Chain config (1 byte)
   0x80-0x83: Body marker 30 28 00 1b (4 bytes)
   0x84-0x1EE: FX parameter body (363 bytes)
+    - NAM/SnapTone ref at 0xA7 (tag 0x0c value byte)
   0x1EF-0x1FA: Tail (12 bytes: 03 00 08 00 XX 00 00 00 07 00 00 00)
 
 GP50 format (552 bytes):
@@ -40,10 +41,19 @@ GP50 format (552 bytes):
   0xAA:      Chain config (1 byte)
   0xAB-0xAE: Body marker (4 bytes)
   0xAF-0x219: FX parameter body (363 bytes)
+    - NAM/SnapTone ref at 0xD2 (tag 0x0c value byte)
   0x21A-0x227: Tail (14 bytes: 03 00 0a 00 XX 00 00 00 YY 00 00 00 ZZ ZZ)
+
+NAM/SnapTone slot reference:
+  Both GP5 and GP50 use the same SnapTone slot numbering (50-59 in example
+  presets). The reference lives in the FX body at a fixed offset relative to
+  the FX body start: byte 35 (0x23) from FX body start.
+  - GP5 absolute offset: 0xA7 (FX body starts at 0x84, 0x84+0x23=0xA7)
+  - GP50 absolute offset: 0xD2 (FX body starts at 0xAF, 0xAF+0x23=0xD2)
+  Value 0 means no NAM/SnapTone (uses built-in amp model only).
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ..models.gp5_preset import GP5Preset
 from ..models.gp50_preset import GP50Preset
@@ -59,6 +69,13 @@ GP50_MIXER_LENGTH = 0x3B
 GP5_FILE_SIZE = 507
 GP50_FILE_SIZE = 552
 BODY_MARKER = b"\x30\x28\x00\x1b"
+
+# NAM/SnapTone reference offset within the FX parameter body (0-indexed)
+NAM_REF_FX_BODY_OFFSET = 0x23  # byte 35 from FX body start
+
+# Absolute NAM ref offsets (FX body start + NAM_REF_FX_BODY_OFFSET)
+GP5_NAM_REF_OFFSET = 0xA7   # 0x84 + 0x23
+GP50_NAM_REF_OFFSET = 0xD2  # 0xAF + 0x23
 
 # Default GP50 mixer params 3-10 (added during GP5->GP50 conversion)
 GP50_DEFAULT_EXTRA_MIXER = (
@@ -211,7 +228,64 @@ class CoreConverter:
         )
 
     @staticmethod
-    def convert_gp5_to_gp50(gp5_data: bytes) -> bytes:
+    def remap_nam_ref(data: bytearray, nam_ref_offset: int, nam_offset: int) -> None:
+        """
+        Remap the NAM/SnapTone slot reference in binary preset data.
+
+        The NAM reference byte at the given absolute offset is adjusted by
+        adding nam_offset to it, allowing presets to point at different
+        SnapTone slots on the target device.
+
+        A value of 0 means "no NAM" (built-in amp only) and is never remapped.
+
+        Args:
+            data: Mutable preset data (bytearray)
+            nam_ref_offset: Absolute byte offset of the NAM reference
+            nam_offset: Signed integer to add to the NAM slot reference.
+                        Positive values shift to higher slots, negative to lower.
+
+        Raises:
+            ValueError: If the remapped value would be out of the valid
+                        byte range (1-255).
+        """
+        current = data[nam_ref_offset]
+        if current == 0:
+            # No NAM assigned - nothing to remap
+            return
+        new_val = current + nam_offset
+        if new_val < 1 or new_val > 255:
+            raise ValueError(
+                f"NAM slot remap out of range: {current} + {nam_offset} = {new_val} "
+                f"(must be 1-255)"
+            )
+        data[nam_ref_offset] = new_val
+
+    @staticmethod
+    def get_nam_ref(data: bytes) -> int:
+        """
+        Read the NAM/SnapTone slot reference from binary preset data.
+
+        Automatically detects GP5 vs GP50 format and reads from the
+        correct offset. Returns 0 if no NAM is assigned.
+
+        Args:
+            data: Raw binary preset data
+
+        Returns:
+            NAM slot number (0 = no NAM assigned)
+
+        Raises:
+            ValueError: If format cannot be detected
+        """
+        fmt = CoreConverter.detect_format(data)
+        if fmt == "GP5" and len(data) == GP5_FILE_SIZE and data[:5] == GP5_MAGIC:
+            return data[GP5_NAM_REF_OFFSET]
+        elif fmt == "GP50" and len(data) == GP50_FILE_SIZE and data[:5] == GP50_MAGIC:
+            return data[GP50_NAM_REF_OFFSET]
+        return 0
+
+    @staticmethod
+    def convert_gp5_to_gp50(gp5_data: bytes, nam_offset: int = 0) -> bytes:
         """
         Convert GP-5 binary preset data to GP-50 format.
 
@@ -222,9 +296,12 @@ class CoreConverter:
         4. Changes tail format marker from 0x08 to 0x0a
         5. Adds default values for GP50-specific tail fields
         6. Appends GP50 footer bytes
+        7. Optionally remaps NAM/SnapTone slot reference by nam_offset
 
         Args:
             gp5_data: Raw binary data from a GP-5 .prst file
+            nam_offset: Signed integer offset to apply to the NAM/SnapTone
+                        slot reference. Default 0 (no change).
 
         Returns:
             Binary data in GP-50 .prst format
@@ -315,10 +392,14 @@ class CoreConverter:
             f"Output size mismatch: expected {GP50_FILE_SIZE}, got {len(result)}"
         )
 
+        # Remap NAM/SnapTone slot reference if requested
+        if nam_offset != 0:
+            CoreConverter.remap_nam_ref(result, GP50_NAM_REF_OFFSET, nam_offset)
+
         return bytes(result)
 
     @staticmethod
-    def convert_gp50_to_gp5(gp50_data: bytes) -> bytes:
+    def convert_gp50_to_gp5(gp50_data: bytes, nam_offset: int = 0) -> bytes:
         """
         Convert GP-50 binary preset data to GP-5 format.
 
@@ -328,9 +409,12 @@ class CoreConverter:
         3. Compresses mixer section from 10 params to 2 params
         4. Changes tail format marker from 0x0a to 0x08
         5. Removes GP50-specific tail fields and footer
+        6. Optionally remaps NAM/SnapTone slot reference by nam_offset
 
         Args:
             gp50_data: Raw binary data from a GP-50 .prst file
+            nam_offset: Signed integer offset to apply to the NAM/SnapTone
+                        slot reference. Default 0 (no change).
 
         Returns:
             Binary data in GP-5 .prst format
@@ -418,5 +502,9 @@ class CoreConverter:
         assert len(result) == GP5_FILE_SIZE, (
             f"Output size mismatch: expected {GP5_FILE_SIZE}, got {len(result)}"
         )
+
+        # Remap NAM/SnapTone slot reference if requested
+        if nam_offset != 0:
+            CoreConverter.remap_nam_ref(result, GP5_NAM_REF_OFFSET, nam_offset)
 
         return bytes(result)

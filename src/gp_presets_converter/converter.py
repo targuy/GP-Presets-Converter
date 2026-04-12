@@ -5,6 +5,7 @@ This module handles the conversion logic between GP-5 and GP-50 .prst preset for
 While the internal engine and modules are shared, the binary file structure differs.
 """
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +14,50 @@ from .core.parser import PresetParser
 from .core.writer import PresetWriter
 from .models.gp5_preset import GP5Preset
 from .models.gp50_preset import GP50Preset
+
+
+def _parse_slot_from_filename(filename: str) -> Optional[int]:
+    """
+    Extract the leading slot number from a preset filename.
+
+    E.g. "55-TimPierce.prst" -> 55, "myPreset.prst" -> None
+
+    Args:
+        filename: The filename (stem or with extension)
+
+    Returns:
+        The slot number or None if not present
+    """
+    stem = Path(filename).stem
+    match = re.match(r"^(\d+)-", stem)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _replace_slot_in_filename(filename: str, new_slot: int) -> str:
+    """
+    Replace the leading slot number in a preset filename.
+
+    E.g. _replace_slot_in_filename("55-TimPierce.prst", 70) -> "70-TimPierce.prst"
+    If the filename has no leading slot, prepend one:
+    E.g. _replace_slot_in_filename("TimPierce.prst", 70) -> "70-TimPierce.prst"
+
+    Args:
+        filename: Original filename
+        new_slot: New slot number
+
+    Returns:
+        Updated filename string
+    """
+    path = Path(filename)
+    stem = path.stem
+    suffix = path.suffix
+    match = re.match(r"^\d+-(.*)", stem)
+    if match:
+        return f"{new_slot}-{match.group(1)}{suffix}"
+    else:
+        return f"{new_slot}-{stem}{suffix}"
 
 
 class PresetConverter:
@@ -37,6 +82,8 @@ class PresetConverter:
         input_path: Path,
         output_path: Optional[Path] = None,
         target_format: Optional[str] = None,
+        target_slot: Optional[int] = None,
+        nam_offset: int = 0,
     ) -> Path:
         """
         Convert a preset file between GP-5 and GP-50 formats.
@@ -50,16 +97,26 @@ class PresetConverter:
             output_path: Optional path for the output file
             target_format: Optional target format ("GP5" or "GP50").
                           If not provided, converts to the opposite format.
+            target_slot: Optional target slot number. Changes the leading
+                        number in the output filename (e.g. 55-Name.prst -> 70-Name.prst).
+                        Must be 0-127. Does NOT modify binary data (slot lives in filename only).
+            nam_offset: Signed integer offset to apply to the NAM/SnapTone
+                       slot reference inside the binary data. Default 0 (no change).
+                       Use when NAM models are loaded in different slots on source
+                       vs target device.
 
         Returns:
             Path to the converted preset file
 
         Raises:
             FileNotFoundError: If input file doesn't exist
-            ValueError: If input file is not a valid preset
+            ValueError: If input file is not a valid preset, or target_slot is out of range
         """
         if not input_path.exists():
             raise FileNotFoundError(f"Input file not found: {input_path}")
+
+        if target_slot is not None and (target_slot < 0 or target_slot > 127):
+            raise ValueError(f"Target slot must be 0-127, got {target_slot}")
 
         # Read input file
         with open(input_path, "rb") as f:
@@ -80,25 +137,41 @@ class PresetConverter:
                 or (data[:5] == b"GP-50" and len(data) == 552)
             )
             if is_real_prst:
-                output_path = input_path.with_suffix(".prst")
+                output_name = input_path.name
+                # Apply slot renaming if requested
+                if target_slot is not None:
+                    output_name = _replace_slot_in_filename(output_name, target_slot)
+                output_path = input_path.parent / output_name
                 if output_path == input_path:
-                    stem = input_path.stem
+                    stem = output_path.stem
                     output_path = input_path.parent / f"{stem}_{target_format.lower()}.prst"
             else:
                 # Legacy format: use appropriate extension
                 ext = ".gp50" if target_format == "GP50" else ".gp5"
                 output_path = input_path.with_suffix(ext)
+        elif target_slot is not None:
+            # User provided explicit output_path AND target_slot:
+            # apply slot renaming to the output filename
+            output_name = _replace_slot_in_filename(output_path.name, target_slot)
+            output_path = output_path.parent / output_name
 
-        print(f"Converting {input_path.name} ({detected_format} -> {target_format})")
-
-        # Check if this is a real .prst file (correct size and magic)
+        # Show NAM warning if converting real .prst and no nam_offset provided
         is_real_gp5 = data[:5] == b"GP-5\x00" and len(data) == 507
         is_real_gp50 = data[:5] == b"GP-50" and len(data) == 552
 
+        nam_ref = CoreConverter.get_nam_ref(data)
+        if (is_real_gp5 or is_real_gp50) and nam_ref > 0 and nam_offset == 0:
+            print(
+                f"  ⚠ NAM/SnapTone slot {nam_ref} referenced in preset. "
+                f"Use --nam-offset if slots differ on target device."
+            )
+
+        print(f"Converting {input_path.name} ({detected_format} -> {target_format})")
+
         if is_real_gp5 and target_format == "GP50":
-            converted_data = CoreConverter.convert_gp5_to_gp50(data)
+            converted_data = CoreConverter.convert_gp5_to_gp50(data, nam_offset=nam_offset)
         elif is_real_gp50 and target_format == "GP5":
-            converted_data = CoreConverter.convert_gp50_to_gp5(data)
+            converted_data = CoreConverter.convert_gp50_to_gp5(data, nam_offset=nam_offset)
         elif is_real_gp5 or is_real_gp50:
             raise ValueError(
                 f"Cannot convert {detected_format} to {target_format}"
@@ -125,6 +198,8 @@ class PresetConverter:
         input_dir: Path,
         output_dir: Optional[Path] = None,
         target_format: Optional[str] = None,
+        start_slot: Optional[int] = None,
+        nam_offset: int = 0,
     ) -> list[Path]:
         """
         Convert all .prst preset files in a directory.
@@ -133,6 +208,10 @@ class PresetConverter:
             input_dir: Directory containing preset files
             output_dir: Optional output directory
             target_format: Optional target format ("GP5" or "GP50")
+            start_slot: Optional starting slot number for batch conversion.
+                       Each successive file gets an incrementing slot number.
+                       Must be 0-127.
+            nam_offset: Signed integer offset for NAM/SnapTone slot remapping.
 
         Returns:
             List of paths to converted preset files
@@ -154,6 +233,8 @@ class PresetConverter:
         # Also look for legacy .gp5 files
         preset_files.extend(input_dir.glob("*.gp5"))
 
+        current_slot = start_slot
+
         for preset_file in sorted(preset_files):
             if output_dir:
                 # Change extension based on target format for legacy files
@@ -168,9 +249,22 @@ class PresetConverter:
 
             try:
                 converted_path = self.convert_file(
-                    preset_file, output_path, target_format
+                    preset_file,
+                    output_path,
+                    target_format,
+                    target_slot=current_slot,
+                    nam_offset=nam_offset,
                 )
                 converted_files.append(converted_path)
+
+                if current_slot is not None:
+                    current_slot += 1
+                    if current_slot > 127:
+                        print(
+                            f"  ⚠ Slot number exceeded 127 after {preset_file.name}. "
+                            f"Remaining files will not have slot numbers assigned."
+                        )
+                        current_slot = None
             except (ValueError, AssertionError) as e:
                 print(f"  Skipping {preset_file.name}: {e}")
 

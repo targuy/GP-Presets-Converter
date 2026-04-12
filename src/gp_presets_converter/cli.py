@@ -18,7 +18,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Convert VALETON GP-5 / GP-50 preset files (.prst) in both directions",
         prog="gp-convert",
-        epilog="For more information, see: https://github.com/targuy/GP-Presets-Converter",
+        epilog=(
+            "Examples:\n"
+            "  gp-convert 55-TimPierce.prst                    # Auto-detect & convert\n"
+            "  gp-convert 55-TimPierce.prst --slot 70           # Output as 70-TimPierce.prst\n"
+            "  gp-convert ./GP5\\ PRESETS/ -o ./GP50/ --slot 60  # Batch starting at slot 60\n"
+            "  gp-convert preset.prst --nam-offset 5            # Shift NAM refs by +5\n"
+            "  gp-convert preset.prst --analyze                 # Analyze file structure\n"
+            "\n"
+            "For more information, see: https://github.com/targuy/GP-Presets-Converter"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument(
@@ -45,6 +55,33 @@ def main() -> int:
         "--target",
         choices=["GP5", "GP50"],
         help="Target format (auto-detected if not specified)",
+    )
+
+    parser.add_argument(
+        "-s",
+        "--slot",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Target slot number (0-127). Sets the leading number in the output "
+            "filename. For directories, files are numbered sequentially starting "
+            "from this value."
+        ),
+    )
+
+    parser.add_argument(
+        "--nam-offset",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "Signed offset to apply to NAM/SnapTone slot references inside the "
+            "binary preset data. Use when NAM models are loaded in different "
+            "slots on the source vs target device. "
+            "Example: if NAM 'JazzClean' is in slot 51 on GP5 but slot 56 on "
+            "GP50, use --nam-offset 5 when converting GP5->GP50. (default: 0)"
+        ),
     )
 
     parser.add_argument(
@@ -85,12 +122,20 @@ def main() -> int:
 
         if args.input.is_file():
             output_path = converter.convert_file(
-                args.input, args.output, args.target
+                args.input,
+                args.output,
+                args.target,
+                target_slot=args.slot,
+                nam_offset=args.nam_offset,
             )
             print(f"✓ Converted: {output_path}")
         elif args.input.is_dir():
             converted_files = converter.convert_directory(
-                args.input, args.output, args.target
+                args.input,
+                args.output,
+                args.target,
+                start_slot=args.slot,
+                nam_offset=args.nam_offset,
             )
             print(f"✓ Converted {len(converted_files)} file(s)")
             if args.verbose:
